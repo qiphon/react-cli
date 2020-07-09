@@ -174,8 +174,26 @@ function isCanUseDir({dir:path, name}) {
  */
 function cloneProject() {
     let {dir, name} = project
-    let spinner = spin(`开始下载模板 ...`).start();
+    // let spinner = spin(`开始下载模板 ...`).start();
+    // 模板临时下载地址
     let tmp = dir + '/.tmp.zip'
+    // 选择模板
+    form([
+        {
+            type: 'list',
+            name: 'platform',
+            choices: ['pc', 'mobile'],
+            message: '选择要使用的平台'
+        },
+        {
+            type: 'list',
+            name: 'data',
+            choices: ['mobx', 'redux'],
+            message: '请选择要使用的数据仓库'
+        }
+    ]).then(({platform, data})=>{
+        console.log(platform, data)
+    });return;
     childShell({
         shell: `curl -SsLo ${tmp} ${getTemplate('pc-mobx')}`
     })
