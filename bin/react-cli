@@ -1,0 +1,264 @@
+#!/usr/bin/env node
+
+const { print, commander } = require('../utils')
+const shell = require('shelljs')
+const inquire = require('inquirer')
+// const envinfo = require('envinfo');
+const fs = require('fs')
+const spin = require('ora')
+const childProcess = require('child_process')
+const { tmpdir } = require('os')
+const { stdout, stderr } = require('process')
+const { resolve } = require('path')
+
+// get input argv
+const { argv } = process
+// save project info
+let project = {}
+
+commander(argv.slice(2), [
+    {
+        command: ['-c', 'create'],
+        option: '[projectName]',
+        description: '创建一个新项目',
+        action(name) {
+            project = {
+                ...project, 
+                name,
+                dir: `${process.cwd()}/${name||''}`,
+            }
+            createApp(project)
+            // if (!name) {
+            //     form(
+            //         [{
+            //             type: "text",
+            //             message: '请输入项目名称 👉 ',
+            //             name: 'name'
+            //         }]
+            //     )
+            //     .then(({ name }) => {
+            //         createApp({ ...project, name })
+            //     })
+            // } else {
+            //     createApp({ ...project, name })
+            // }
+        }
+    },
+    {
+        command: ['-i', 'info'],
+        description: '获取系统当前系统的相关信息',
+        action() {
+            // 获取指定的系统信息
+            // envinfo.run(
+            //     // {
+            //     //     System: ['OS', 'CPU'],
+            //     //     Binaries: ['Node', 'Yarn', 'npm'],
+            //     //     Browsers: ['Chrome', 'Firefox', 'Safari'],
+            //     // },
+            //     // { json: true, showNotFound: true }
+            // ).then(env => console.log(env));
+            shell.exec('npx envinfo')
+            process.exit(0)
+        }
+    },
+    {
+        command: ['-v', 'version'],
+        description: '展示当前脚手架版本',
+        action(option) {
+            print.hello()
+        }
+    },
+])
+
+function createApp({ name, dir }) {
+    // const useYarn = shell.exec('yarn --version', {silent: true}).stdout
+    if (!name) {
+        // console.log('no name')
+        let dirArr = dir.split('/')
+        name = dirArr[dirArr.length - 1] 
+        if(!name){
+            dirArr.pop()
+            name = dirArr[dirArr.length -1]
+        }
+        dir = dirArr.join('/')
+        project = {
+            ...project,
+            name,
+            dir
+        }
+        // console.log(project, 22, dirArr);return;
+        return isCanUseDir(project)
+    }
+    var r = shell.exec(`ls -d ${dir}`, {silent:true}).stdout
+    if(r) {
+        // dir is exist
+        return isCanUseDir(project)
+    }else{
+        // create dir
+        shell.mkdir(dir);
+        cloneProject()
+    }
+}
+
+/**
+ * @fileoverview 和用户的交互
+ * @param {object[]}  arr 
+ */
+function form(arr) {
+    return new Promise(resolve=>{
+        inquire.prompt(arr).then(obj => {
+            resolve(obj)
+        })
+        .catch(err => {
+            print.error(err)
+            process.exit(-1)
+        })
+    })
+}
+/**
+ * @fileoverview 处理当前目录
+ */
+function isCanUseDir({dir:path, name}) {
+    let isEmpty = shell.exec(`ls ${path}`, {silent: true}).stdout
+    // console.log(isEmpty,  ' is empty', project); return;
+    if(isEmpty && !name){
+        // console.log(`not empty & no name`)
+        print.error(`
+            \n 当前目录非空，请选择一个空目录 \n 
+            例如：usage: react-cli <projectName> \n
+            for example: react-cli myapp \n
+            for more options: react-cli -h
+        `)
+        process.exit(-1);
+    }
+    else if(isEmpty && name){
+        // console.log('not empty & has name')
+        form({
+            type: 'confirm',
+            name: 'isRMAll',
+            message: '这个文件非空，是否要删除这个文件夹中的所有内容？'
+        })
+        .then(({isRMAll})=>{
+            if(isRMAll){
+                shell.exec(`rm -rf ${path}`)
+                let r = shell.mkdir(path)
+                return cloneProject()
+            }else{
+                form(
+                    [{
+                        type: "text",
+                        message: '请重新输入项目名称 👉 ',
+                        name: 'name'
+                    }]
+                )
+                .then(({ name }) => {
+                    project = {
+                        ...project,
+                        dir: `${process.cwd()}/${name||''}`,
+                        name
+                    }
+                    createApp(project)
+                })
+            }
+        })
+    }
+    else{
+        // console.log('empty')
+        return cloneProject()
+        console.log(isEmpty, 'empty', path)
+    }
+}
+
+/**
+ * @fileoverview 开始克隆项目
+ */
+function cloneProject() {
+    let {dir, name} = project
+    let spinner = spin(`开始下载模板 ...`).start();
+    let tmp = dir + '/.tmp.zip'
+    childShell({
+        shell: `curl -SsLo ${tmp} ${getTemplate('pc-mobx')}`
+    })
+    .then(({err, stdout, stderr})=>{
+        // console.log(err, stdout)
+        if(!err){
+            spinner.succeed('模板下载完成，开始解压。')
+            spinner = spin('开始解压...')
+            return childShell({
+                shell: `unzip -o ${tmp} -d ${dir}`
+            })
+        }
+    })
+    .then(({err, stdout, stderr})=>{
+        // console.log(err, stdout)
+        if(!err){
+            spinner.succeed('解压完成。')
+            return childShell({
+                shell: `rm -rf ${tmp}`
+            })    
+        }
+    })
+    .then(({err, stdout, stderr})=>{
+        // console.log(err, stdout)
+        if(!err){
+            // spinner.succeed('解压完成。')
+            return childShell({
+                shell: `ls ${dir}`
+            })    
+        }
+    })
+    .then(({err, stdout, stderr})=>{
+        // console.log(err, stdout, '已经获取到当前的文件名')
+        let tmpDir = dir + '/' + stdout.replace('\n', '')
+        if(!err){
+            // spinner.succeed('解压完成。')
+            return childShell({
+                shell: `mv ${tmpDir}/* ${dir} & rm -rf ${dir}/${stdout}`
+            })    
+        }
+    })
+    .then(({err, stdout, stderr})=>{
+        if(!err){
+            shell.sed(`${dir}/package.json`, /"name":\s"(.*)"/, '$0')
+            print.log(`
+                \n😛项目下载完成！
+                \n运行 yarn & yarn start 启动
+            `)
+            // process.chdir(dir)
+        }
+    })
+    // childProcess.exec(
+    //     `curl -SsLo ${tmp} ${getTemplate('pc-mobx')}`,
+    //     function (err, stdout, stderr) {
+    //         console.log(err, stdout, stderr, 'res') 
+    //         if(err){
+    //             // console.log('clone fail')
+    //             spinner.stop()
+    //             print.error(`项目构建失败，请检查当前网络，\n或手动克隆项目
+    //             `)
+    //             process.exit(-1)
+    //         }else{
+    //             // console.log('clone success')
+    //             spinner.succeed(`项目 ${name} 创建完成`)
+    //         }
+    //         process.exit(0)
+    //     }
+    // )
+    // console.log(project, 'clone start')
+}
+function childShell({
+    shell,
+    cb
+}) {
+    return new Promise(resolve=>
+    childProcess.exec(shell, (err, stdout, stderr)=> resolve({err, stdout, stderr})))
+}
+function getTemplate(name) {
+    let obj = {
+        'pc-mobx': `https://github.com/qiphon/react-webpack4-mobx/archive/v1.0.zip`,
+        'pc-redux': '',
+        'mobile-mobx': '',
+        'mobile-redux': ''
+    }
+    return obj[name] || ''
+}
